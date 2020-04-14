@@ -837,7 +837,7 @@ KBEngine.MemoryStream = function(size_or_buffer)
 		buf.set(new Uint8Array(stream.buffer, offset, size), 0);
 		this.wpos += size;
 	}
-	
+
 	//---------------------------------------------------------------------------------
 	this.readSkip = function(v)
 	{
@@ -910,7 +910,7 @@ KBEngine.MemoryStream.createObject = function()
 {
 	if(KBEngine.MemoryStream._objects == undefined)
 		KBEngine.MemoryStream._objects = [];
-
+  
 	return KBEngine.MemoryStream._objects.length > 0 ? KBEngine.MemoryStream._objects.pop() : new KBEngine.MemoryStream(KBEngine.PACKET_MAX_SIZE_TCP);
 }
 
@@ -2760,7 +2760,7 @@ KBEngine.KBEngineArgs = function()
 	this.updateHZ = @{KBE_UPDATEHZ} * 10;
 	this.serverHeartbeatTick = @{KBE_SERVER_EXTERNAL_TIMEOUT};
 
-	// Reference: http://www.kbengine.org/docs/programming/clientsdkprogramming.html, client types
+	// Reference: http://kbengine.github.io/docs/programming/clientsdkprogramming.html, client types
 	this.clientType = 5;
 
 	// 在Entity初始化时是否触发属性的set_*事件(callPropertysSetMethods)
@@ -2775,32 +2775,43 @@ KBEngine.KBEngineArgs = function()
 -----------------------------------------------------------------------------------------*/
 KBEngine.EventTypes =
 {
+	// ------------------------------------账号相关------------------------------------
+
 	// Create new account.
 	// <para> param1(string): accountName</para>
 	// <para> param2(string): password</para>
 	// <para> param3(bytes): datas // Datas by user defined. Data will be recorded into the KBE account database, you can access the datas through the script layer. If you use third-party account system, datas will be submitted to the third-party system.</para>
 	createAccount : "createAccount",
 
-	// Login to server.
-	// <para> param1(string): accountName</para>
-	// <para> param2(string): password</para>
-	// <para> param3(bytes): datas // Datas by user defined. Data will be recorded into the KBE account database, you can access the datas through the script layer. If you use third-party account system, datas will be submitted to the third-party system.</para>
-	login : "login",
-
-	// Logout to baseapp, called when exiting the client.	
-	logout : "logout",
-
-	// Relogin to baseapp.
-	reloginBaseapp : "reloginBaseapp",
+	// Create account feedback results.
+	// <para> param1(uint16): retcode. // server_errors</para>
+	// <para> param2(bytes): datas. // If you use third-party account system, the system may fill some of the third-party additional datas. </para>
+	onCreateAccountResult : "onCreateAccountResult",
 
 	// Request server binding account Email.
 	// <para> param1(string): emailAddress</para>
 	bindAccountEmail : "bindAccountEmail",
 
+	// Response from binding account Email request.
+	// <para> param1(uint16): retcode. // server_errors</para>
+	onBindAccountEmail : "onBindAccountEmail",
+
 	// Request to set up a new password for the account. Note: account must be online.
 	// <para> param1(string): old_password</para>
 	// <para> param2(string): new_password</para>
 	newPassword : "newPassword",
+
+	// Response from a new password request.
+	// <para> param1(uint16): retcode. // server_errors</para>
+	onNewPassword : "onNewPassword",
+
+	// Request to reset password for the account. Note: account must be online.
+	// <para> param1(string): username</para>
+	resetPassword : "resetPassword",
+
+	// Response from a reset password request.
+	// <para> param1(uint16): retcode. // server_errors</para>
+	onResetPassword : "onResetPassword",
 
 	// ------------------------------------连接相关------------------------------------
 
@@ -2817,10 +2828,17 @@ KBEngine.EventTypes =
 
 	// ------------------------------------logon相关------------------------------------
 
-	// Create account feedback results.
-	// <para> param1(uint16): retcode. // server_errors</para>
-	// <para> param2(bytes): datas. // If you use third-party account system, the system may fill some of the third-party additional datas. </para>
-	onCreateAccountResult : "onCreateAccountResult",
+	// Login to server.
+	// <para> param1(string): accountName</para>
+	// <para> param2(string): password</para>
+	// <para> param3(bytes): datas // Datas by user defined. Data will be recorded into the KBE account database, you can access the datas through the script layer. If you use third-party account system, datas will be submitted to the third-party system.</para>
+	login : "login",
+
+	// Logout to baseapp, called when exiting the client.	
+	logout : "logout",
+
+	// Relogin to baseapp.
+	reloginBaseapp : "reloginBaseapp",
 
 	// Engine version mismatch.
 	// <para> param1(string): clientVersion
@@ -3075,6 +3093,7 @@ KBEngine.KBEngineApp = function(kbengineArgs)
 		KBEngine.Event.register(KBEngine.EventTypes.reloginBaseapp, KBEngine.app, "reloginBaseapp");
 		KBEngine.Event.register(KBEngine.EventTypes.bindAccountEmail, KBEngine.app, "bindAccountEmail");
 		KBEngine.Event.register(KBEngine.EventTypes.newPassword, KBEngine.app, "newPassword");
+		KBEngine.Event.register(KBEngine.EventTypes.resetPassword, KBEngine.app, "resetPassword");
 	}
 
 	this.uninstallEvents = function()
@@ -3085,6 +3104,7 @@ KBEngine.KBEngineApp = function(kbengineArgs)
 		KBEngine.Event.deregister(KBEngine.EventTypes.reloginBaseapp, KBEngine.app);
 		KBEngine.Event.deregister(KBEngine.EventTypes.bindAccountEmail, KBEngine.app);
 		KBEngine.Event.deregister(KBEngine.EventTypes.newPassword, KBEngine.app);
+		KBEngine.Event.deregister(KBEngine.EventTypes.resetPassword, KBEngine.app);
 	}
 	
 	this.hello = function()
@@ -3231,6 +3251,7 @@ KBEngine.KBEngineApp = function(kbengineArgs)
 				if(app.fragmentStream != null && app.fragmentStream.length() >= app.currMsgLen)
 				{
 					msgHandler.handleMessage(app.fragmentStream);
+					app.fragmentStream.reclaimObject();
 					app.fragmentStream = null;
 				}
 				else if(stream.length() < app.currMsgLen && stream.length() > 0)
@@ -3250,7 +3271,6 @@ KBEngine.KBEngineApp = function(kbengineArgs)
 
 				app.currMsgID = 0;
 				app.currMsgLen = 0;
-				app.fragmentStream = null;
 			}
 			else
 			{
@@ -3273,7 +3293,13 @@ KBEngine.KBEngineApp = function(kbengineArgs)
 		
 		app.fragmentDatasRemain = datasize - opsize;
 		app.fragmentDatasFlag = FragmentDataType;
-		app.fragmentStream = stream;
+
+		if(opsize > 0)
+		{
+			KBEngine.app.fragmentStream = KBEngine.MemoryStream.createObject();
+			KBEngine.app.fragmentStream.append(stream, stream.rpos, opsize);
+			stream.done();
+		}
 	}
 
 	this.mergeFragmentMessage = function(stream)
@@ -3296,22 +3322,20 @@ KBEngine.KBEngineApp = function(kbengineArgs)
 		{
 			var FragmentDataTypes = KBEngine.FragmentDataTypes;
 			fragmentStream.append(stream, stream.rpos, app.fragmentDatasRemain);
+			stream.rpos += app.fragmentDatasRemain;
 
 			switch(app.fragmentDatasFlag)
 			{
 				case FragmentDataTypes.FRAGMENT_DATA_MESSAGE_ID:
 					app.currMsgID = fragmentStream.readUint16();
-					app.fragmentStream = null;
 					break;
 
 				case FragmentDataTypes.FRAGMENT_DATA_MESSAGE_LENGTH:
 					app.currMsgLen = fragmentStream.readUint16();
-					app.fragmentStream = null;
 					break;
 
 				case FragmentDataTypes.FRAGMENT_DATA_MESSAGE_LENGTH1:
 					app.currMsgLen = fragmentStream.readUint32();
-					app.fragmentStream = null;
 					break;
 
 				case FragmentDataTypes.FRAGMENT_DATA_MESSAGE_BODY:
@@ -3319,7 +3343,6 @@ KBEngine.KBEngineApp = function(kbengineArgs)
 					break;
 			}
 
-			stream.rpos += app.fragmentDatasRemain;
 			app.fragmentDatasFlag = FragmentDataTypes.FRAGMENT_DATA_UNKNOW;
 			app.fragmentDatasRemain = 0;
 			return false;
@@ -3363,7 +3386,7 @@ KBEngine.KBEngineApp = function(kbengineArgs)
 			return;
 
 		var dateObject = new Date();
-		if((dateObject.getTime() - KBEngine.app.lastTickTime) / 1000 > (KBEngine.app.args.serverHeartbeatTick / 2))
+		if(KBEngine.app.args.serverHeartbeatTick > 0 && (dateObject.getTime() - KBEngine.app.lastTickTime) / 1000 > (KBEngine.app.args.serverHeartbeatTick / 2))
 		{
 			// 如果心跳回调接收时间小于心跳发送时间，说明没有收到回调
 			// 此时应该通知客户端掉线了
@@ -3997,7 +4020,7 @@ KBEngine.KBEngineApp = function(kbengineArgs)
 		bundle.writeInt32(KBEngine.app.entity_id);
 		bundle.send(KBEngine.app);
 	}
-
+	
 	this.login_loginapp = function(noconnect)
 	{  
 		if(noconnect)
@@ -4040,7 +4063,7 @@ KBEngine.KBEngineApp = function(kbengineArgs)
 		}
 	}
 
-	this.reset_password = function(username)
+	this.resetPassword = function(username)
 	{ 
 		KBEngine.app.reset();
 		KBEngine.app.username = username;
@@ -4168,7 +4191,7 @@ KBEngine.KBEngineApp = function(kbengineArgs)
 		var failedcode = args.readUint16();
 		KBEngine.app.serverdatas = args.readBlob();
 		KBEngine.ERROR_MSG("KBEngineApp::Client_onLoginFailed: failedcode=" + failedcode + "(" + KBEngine.app.serverErrs[failedcode].name + "), datas(" + KBEngine.app.serverdatas.length + ")!");
-		KBEngine.Event.fire(KBEngine.EventTypes.onLoginFailed, failedcode);
+		KBEngine.Event.fire(KBEngine.EventTypes.onLoginFailed, failedcode, KBEngine.app.serverdatas);
 	}
 	
 	this.Client_onLoginSuccessfully = function(args)
@@ -4849,12 +4872,34 @@ KBEngine.KBEngineApp = function(kbengineArgs)
 		KBEngine.app.entityServerPos.x = x;
 		KBEngine.app.entityServerPos.y = y;
 		KBEngine.app.entityServerPos.z = z;
+
+        var entity = KBEngine.app.player();
+        if(entity != undefined && entity.isControlled)
+        {
+			entity.position.x = KBEngine.app.entityServerPos.x;
+			entity.position.y = KBEngine.app.entityServerPos.y;
+			entity.position.z = KBEngine.app.entityServerPos.z;
+
+			KBEngine.Event.fire(KBEngine.EventTypes.updatePosition, entity);
+			entity.onUpdateVolatileData();
+        }
 	}
 	
 	this.Client_onUpdateBasePosXZ = function(x, z)
 	{
 		KBEngine.app.entityServerPos.x = x;
 		KBEngine.app.entityServerPos.z = z;
+
+        var entity = KBEngine.app.player();
+        if(entity != undefined && entity.isControlled)
+        {
+			entity.position.x = KBEngine.app.entityServerPos.x;
+			entity.position.y = KBEngine.app.entityServerPos.y;
+			entity.position.z = KBEngine.app.entityServerPos.z;
+
+			KBEngine.Event.fire(KBEngine.EventTypes.updatePosition, entity);
+			entity.onUpdateVolatileData();
+        }
 	}
 	
 	this.Client_onUpdateData = function(stream)
@@ -5453,19 +5498,19 @@ KBEngine.KBEngineApp = function(kbengineArgs)
 		if(roll != KBEngine.KBE_FLT_MAX)
 		{
 			changeDirection = true;
-			entity.direction.x = KBEngine.int82angle(roll, false);
+			entity.direction.x = isOptimized ? KBEngine.int82angle(roll, false) : roll;
 		}
 
 		if(pitch != KBEngine.KBE_FLT_MAX)
 		{
 			changeDirection = true;
-			entity.direction.y = KBEngine.int82angle(pitch, false);
+			entity.direction.y = isOptimized ? KBEngine.int82angle(pitch, false) : pitch;
 		}
 		
 		if(yaw != KBEngine.KBE_FLT_MAX)
 		{
 			changeDirection = true;
-			entity.direction.z = KBEngine.int82angle(yaw, false);
+			entity.direction.z = isOptimized ? KBEngine.int82angle(yaw, false) : yaw;
 		}
 		
 		var done = false;
@@ -5479,9 +5524,9 @@ KBEngine.KBEngineApp = function(kbengineArgs)
 		if(x != KBEngine.KBE_FLT_MAX || y != KBEngine.KBE_FLT_MAX || z != KBEngine.KBE_FLT_MAX)
 			positionChanged = true;
 
-		if (x == KBEngine.KBE_FLT_MAX) x = 0.0;
-		if (y == KBEngine.KBE_FLT_MAX) y = 0.0;
-		if (z == KBEngine.KBE_FLT_MAX) z = 0.0;
+		if (x == KBEngine.KBE_FLT_MAX) x = isOptimized ? 0.0 : entity.position.x;
+		if (y == KBEngine.KBE_FLT_MAX) y = isOptimized ? 0.0 : entity.position.y;
+		if (z == KBEngine.KBE_FLT_MAX) z = isOptimized ? 0.0 : entity.position.z;
         
 		if(positionChanged)
 		{
@@ -5497,7 +5542,6 @@ KBEngine.KBEngineApp = function(kbengineArgs)
 				entity.position.y = y;
 				entity.position.z = z;
 			}
-			
 			
 			done = true;
 			KBEngine.Event.fire(KBEngine.EventTypes.updatePosition, entity);
@@ -5526,6 +5570,8 @@ KBEngine.KBEngineApp = function(kbengineArgs)
 	
 	this.Client_onReqAccountResetPasswordCB = function(failedcode)
 	{
+		KBEngine.Event.fire(KBEngine.EventTypes.onResetPassword, failedcode);
+
 		if(failedcode != 0)
 		{
 			KBEngine.ERROR_MSG("KBEngineApp::Client_onReqAccountResetPasswordCB: " + KBEngine.app.username + " is failed! code=" + failedcode + "(" + KBEngine.app.serverErrs[failedcode].name + ")!");
@@ -5537,6 +5583,8 @@ KBEngine.KBEngineApp = function(kbengineArgs)
 	
 	this.Client_onReqAccountBindEmailCB = function(failedcode)
 	{
+		KBEngine.Event.fire(KBEngine.EventTypes.onBindAccountEmail, failedcode);
+
 		if(failedcode != 0)
 		{
 			KBEngine.ERROR_MSG("KBEngineApp::Client_onReqAccountBindEmailCB: " + KBEngine.app.username + " is failed! code=" + failedcode +"(" + KBEngine.app.serverErrs[failedcode].name + ")!");
@@ -5548,6 +5596,8 @@ KBEngine.KBEngineApp = function(kbengineArgs)
 	
 	this.Client_onReqAccountNewPasswordCB = function(failedcode)
 	{
+		KBEngine.Event.fire(KBEngine.EventTypes.onNewPassword, failedcode);
+
 		if(failedcode != 0)
 		{
 			KBEngine.ERROR_MSG("KBEngineApp::Client_onReqAccountNewPasswordCB: " + KBEngine.app.username + " is failed! code=" + failedcode + "(" +KBEngine.app.serverErrs[failedcode].name + ")!");

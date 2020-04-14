@@ -109,8 +109,9 @@ void Interfaces::handleTimeout(TimerHandle handle, void * arg)
 //-------------------------------------------------------------------------------------
 void Interfaces::handleMainTick()
 {
-	 //time_t t = ::time(NULL);
-	 //DEBUG_MSG("Interfaces::handleGameTick[%"PRTime"]:%u\n", t, time_);
+	// time_t t = ::time(NULL);
+	// static int kbeTime = 0;
+	// DEBUG_MSG(fmt::format("Interfaces::handleGameTick[{}]:{}\n", t, ++kbeTime));
 	
 	threadPool_.onMainThreadTick();
 	networkInterface().processChannels(&InterfacesInterface::messageHandlers);
@@ -126,6 +127,7 @@ bool Interfaces::initializeBegin()
 bool Interfaces::inInitialize()
 {
 	PythonApp::inInitialize();
+
 	// 广播自己的地址给网上上的所有kbemachine
 	Components::getSingleton().pHandler(this);
 	return true;
@@ -653,7 +655,7 @@ void Interfaces::accountLoginResponse(std::string commitName, std::string realAc
 	if (iter == reqAccountLogin_requests_.end())
 	{
 		// 理论上不可能找不到，但如果真找不到，这是个很恐怖的事情，必须写日志记录下来
-		ERROR_MSG(fmt::format("Interfaces::accountLoginResponse: commitName '{}' not found!" \
+		ERROR_MSG(fmt::format("Interfaces::accountLoginResponse: commitName '{}' not found! " \
 			"realAccountName = '{}', extra datas = '{}', error code = '{}'\n", 
 			commitName, 
 			realAccountName, 

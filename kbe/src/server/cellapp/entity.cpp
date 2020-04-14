@@ -64,6 +64,7 @@ SCRIPT_METHOD_DECLARE("entitiesInView",				pyEntitiesInView,				METH_VARARGS,			
 SCRIPT_METHOD_DECLARE("teleport",					pyTeleport,						METH_VARARGS,				0)
 SCRIPT_METHOD_DECLARE("destroySpace",				pyDestroySpace,					METH_VARARGS,				0)
 SCRIPT_METHOD_DECLARE("debugView",					pyDebugView,					METH_VARARGS,				0)
+SCRIPT_METHOD_DECLARE("getWitnesses",				pyGetWitnesses,					METH_VARARGS,				0)
 ENTITY_METHOD_DECLARE_END()
 
 SCRIPT_MEMBER_DECLARE_BEGIN(Entity)
@@ -677,7 +678,7 @@ void Entity::onDefDataChanged(EntityComponent* pEntityComponent, const PropertyD
 	// 首先创建一个需要广播的模板流
 	MemoryStream* mstream = MemoryStream::createPoolObject(OBJECTPOOL_POINT);
 
-	EntityDef::context().currComponentType = g_componentType;
+	EntityDef::context().currComponentType = CLIENT_TYPE;
 	propertyDescription->getDataType()->addToStream(mstream, pyData);
 
 	// 判断是否需要广播给其他的cellapp, 这还需一个前提是entity必须拥有ghost实体
@@ -693,7 +694,19 @@ void Entity::onDefDataChanged(EntityComponent* pEntityComponent, const PropertyD
 			(*pForwardBundle) << componentPropertyUID;
 			(*pForwardBundle) << propertyDescription->getUType();
 
-			pForwardBundle->append(*mstream);
+			// 如果是组件属性，则需要将组件内部的服务器相关可广播属性打包
+			if (propertyDescription->getDataType()->type() == DATA_TYPE_ENTITY_COMPONENT)
+			{
+				MemoryStream* server_mstream = MemoryStream::createPoolObject(OBJECTPOOL_POINT);
+				EntityDef::context().currComponentType = g_componentType;
+				propertyDescription->getDataType()->addToStream(server_mstream, pyData);
+				pForwardBundle->append(*server_mstream);
+				MemoryStream::reclaimPoolObject(server_mstream);
+			}
+			else
+			{
+				pForwardBundle->append(*mstream);
+			}
 
 			// 记录这个事件产生的数据量大小
 			g_publicCellEventHistoryStats.trackEvent(scriptName(), 
@@ -1475,7 +1488,13 @@ void Entity::addWitnessed(Entity* entity)
 //-------------------------------------------------------------------------------------
 void Entity::delWitnessed(Entity* entity)
 {
-	KBE_ASSERT(witnesses_count_ > 0);
+	if (witnesses_count_ == 0)
+	{
+		ERROR_MSG(fmt::format("{}::delWitnessed({}): witness is empty!\n",
+			scriptName(), id()));
+
+		return;
+	}
 
 	witnesses_.remove(entity->id());
 	--witnesses_count_;
@@ -2051,6 +2070,21 @@ void Entity::setWitness(Witness* pWitness)
 //-------------------------------------------------------------------------------------
 void Entity::onGetWitnessFromBase(Network::Channel* pChannel)
 {
+	if (!isReal())
+	{
+		// 需要做中转
+		GhostManager* gm = Cellapp::getSingleton().pGhostManager();
+		if (gm)
+		{
+			Network::Bundle* pBundle = gm->createSendBundle(realCell());
+			pBundle->newMessage(CellappInterface::onGetWitnessFromBase);
+			(*pBundle) << id();
+			gm->pushMessage(realCell(), pBundle);
+		}
+
+		return;
+	}
+
 	onGetWitness(true);
 }
 
@@ -2072,6 +2106,39 @@ void Entity::onGetWitness(bool fromBase)
 			// Py_INCREF(clientEntityCall); 这里不需要增加引用， 因为每次都会产生一个新的对象
 			clientEntityCall(client);
 		}
+
+		// 如果一个实体已经有cell的情况下giveToClient，那么需要将最新的客户端属性值更新到客户端
+		Network::Bundle* pSendBundle = Network::Bundle::createPoolObject(OBJECTPOOL_POINT);
+		NETWORK_ENTITY_MESSAGE_FORWARD_CLIENT_BEGIN(id(), (*pSendBundle));
+
+		ENTITY_MESSAGE_FORWARD_CLIENT_BEGIN(pSendBundle, ClientInterface::onUpdatePropertys, updatePropertys);
+		MemoryStream* s1 = MemoryStream::createPoolObject(OBJECTPOOL_POINT);
+		(*pSendBundle) << id();
+
+		ENTITY_PROPERTY_UID spaceuid = ENTITY_BASE_PROPERTY_UTYPE_SPACEID;
+
+		Network::FixedMessages::MSGInfo* msgInfo =
+			Network::FixedMessages::getSingleton().isFixed("Property::spaceID");
+
+		if (msgInfo != NULL)
+			spaceuid = msgInfo->msgid;
+
+		if (pScriptModule()->usePropertyDescrAlias())
+		{
+			uint8 aliasID = ENTITY_BASE_PROPERTY_ALIASID_SPACEID;
+			(*s1) << (uint8)0 << aliasID << this->spaceID();
+		}
+		else
+		{
+			(*s1) << (ENTITY_PROPERTY_UID)0 << spaceuid << this->spaceID();
+		}
+
+		addClientDataToStream(s1);
+		(*pSendBundle).append(*s1);
+		MemoryStream::reclaimPoolObject(s1);
+		ENTITY_MESSAGE_FORWARD_CLIENT_END(pSendBundle, ClientInterface::onUpdatePropertys, updatePropertys);
+
+		clientEntityCall()->sendCall(pSendBundle);
 
 		if(pWitness_ == NULL)
 		{
@@ -2109,42 +2176,6 @@ void Entity::onGetWitness(bool fromBase)
 		SCOPED_PROFILE(SCRIPTCALL_PROFILE);
 		CALL_ENTITY_AND_COMPONENTS_METHOD(this, SCRIPT_OBJECT_CALL_ARGS0(pyTempObj, const_cast<char*>("onGetWitness"), GETERR));
 	}
-	
-	// 如果一个实体已经有cell的情况下giveToClient，那么需要将最新的客户端属性值更新到客户端
-	if(fromBase)
-	{
-		Network::Bundle* pSendBundle = Network::Bundle::createPoolObject(OBJECTPOOL_POINT);
-		NETWORK_ENTITY_MESSAGE_FORWARD_CLIENT_BEGIN(id(), (*pSendBundle));
-		
-		ENTITY_MESSAGE_FORWARD_CLIENT_BEGIN(pSendBundle, ClientInterface::onUpdatePropertys, updatePropertys);
-		MemoryStream* s1 = MemoryStream::createPoolObject(OBJECTPOOL_POINT);
-		(*pSendBundle) << id();
-		
-		ENTITY_PROPERTY_UID spaceuid = ENTITY_BASE_PROPERTY_UTYPE_SPACEID;
-
-		Network::FixedMessages::MSGInfo* msgInfo = 
-			Network::FixedMessages::getSingleton().isFixed("Property::spaceID");
-
-		if(msgInfo != NULL)
-			spaceuid = msgInfo->msgid;
-		
-		if(pScriptModule()->usePropertyDescrAlias())
-		{
-			uint8 aliasID = ENTITY_BASE_PROPERTY_ALIASID_SPACEID;
-			(*s1) << (uint8)0 << aliasID << this->spaceID();
-		}
-		else
-		{
-			(*s1) << (ENTITY_PROPERTY_UID)0 << spaceuid << this->spaceID();
-		}
-
-		addClientDataToStream(s1);
-		(*pSendBundle).append(*s1);
-		MemoryStream::reclaimPoolObject(s1);
-		ENTITY_MESSAGE_FORWARD_CLIENT_END(pSendBundle, ClientInterface::onUpdatePropertys, updatePropertys);
-		
-		clientEntityCall()->sendCall(pSendBundle);
-	}
 
 	Py_DECREF(this);
 }
@@ -2158,8 +2189,14 @@ void Entity::onLoseWitness(Network::Channel* pChannel)
 	if (!isReal())
 	{
 		// 需要做中转
-		ERROR_MSG(fmt::format("Entity::onLoseWitness(): {} is ghost, request error! spaceID={}, entityID={}!\n",
-			scriptName(), spaceID(), id()));
+		GhostManager* gm = Cellapp::getSingleton().pGhostManager();
+		if (gm)
+		{
+			Network::Bundle* pBundle = gm->createSendBundle(realCell());
+			pBundle->newMessage(CellappInterface::onLoseWitness);
+			(*pBundle) << id();
+			gm->pushMessage(realCell(), pBundle);
+		}
 
 		return;
 	}
@@ -2260,8 +2297,11 @@ int Entity::pySetVolatileinfo(PyObject *value)
 PyObject* Entity::pyGetVolatileinfo()
 {
 	if (pCustomVolatileinfo_ == NULL)
-		pCustomVolatileinfo_ = new VolatileInfo();
-
+	{
+		VolatileInfo* pVolatileInfo = const_cast<ScriptDefModule*>(pScriptModule())->getPVolatileInfo();
+		pCustomVolatileinfo_ = new VolatileInfo(*pVolatileInfo);
+	}
+		
 	Py_INCREF(pCustomVolatileinfo_);
 	return pCustomVolatileinfo_;
 }
@@ -2422,6 +2462,47 @@ float Entity::getViewRadius(void) const
 PyObject* Entity::pyGetViewRadius()
 {
 	return PyFloat_FromDouble(getViewRadius());
+}
+
+//-------------------------------------------------------------------------------------
+PyObject* Entity::pyGetWitnesses()
+{
+	std::vector<Entity*> entities;
+
+	std::list<ENTITY_ID>::iterator witer = witnesses_.begin();
+	for (; witer != witnesses_.end(); ++witer)
+	{
+		Entity* pEntity = Cellapp::getSingleton().findEntity((*witer));
+		if (pEntity == NULL || pEntity->pWitness() == NULL)
+			continue;
+
+		EntityCall* clientEntityCall = pEntity->clientEntityCall();
+		if (clientEntityCall == NULL)
+			continue;
+
+		Network::Channel* pChannel = clientEntityCall->getChannel();
+		if (pChannel == NULL)
+			continue;
+
+		// 这个可能性是存在的，例如数据来源于createWitnessFromStream()
+		// 又如自己的entity还未在目标客户端上创建
+		if (!pEntity->pWitness()->entityInView(id()))
+			continue;
+
+		entities.push_back(pEntity);
+	}
+
+	int i = 0;
+	PyObject * pTuple = PyTuple_New(entities.size());
+
+	std::vector<Entity*>::const_iterator iter = entities.begin();
+	for (; iter != entities.end(); iter++, i++)
+	{
+		Py_INCREF(*iter);
+		PyTuple_SET_ITEM(pTuple, i, *iter);
+	}
+
+	return pTuple;
 }
 
 //-------------------------------------------------------------------------------------
@@ -3304,90 +3385,6 @@ void Entity::_sendBaseTeleportResult(ENTITY_ID sourceEntityID, COMPONENT_ID sour
 		(*pBundle) << sourceEntityID;
 		BaseappInterface::onTeleportCBArgs2::staticAddToBundle((*pBundle), spaceID, fromCellTeleport);
 		cinfos->pChannel->send(pBundle);
-	}
-}
-
-//-------------------------------------------------------------------------------------
-void Entity::teleportFromBaseapp(Network::Channel* pChannel, COMPONENT_ID cellAppID, ENTITY_ID targetEntityID, COMPONENT_ID sourceBaseAppID)
-{
-	DEBUG_MSG(fmt::format("{}::teleportFromBaseapp: {}, targetEntityID={}, cell={}, sourceBaseAppID={}.\n", 
-		this->scriptName(), this->id(), targetEntityID, cellAppID, sourceBaseAppID));
-
-	SPACE_ID lastSpaceID = this->spaceID();
-
-	if (!isReal())
-	{
-		ERROR_MSG(fmt::format("{}::teleportFromBaseapp: not is real entity({}), sourceBaseAppID={}.\n",
-			this->scriptName(), this->id(), sourceBaseAppID));
-
-		_sendBaseTeleportResult(this->id(), sourceBaseAppID, 0, lastSpaceID, false);
-		return;
-	}
-
-	if(hasFlags(ENTITY_FLAGS_TELEPORT_START))
-	{
-		ERROR_MSG(fmt::format("{}::teleportFromBaseapp: In transit! entity={}, sourceBaseAppID={}.\n",
-			this->scriptName(), this->id(), sourceBaseAppID));
-
-		_sendBaseTeleportResult(this->id(), sourceBaseAppID, 0, lastSpaceID, false);
-		return;
-	}
-	
-	// 如果不在一个cell上
-	if(cellAppID != g_componentID)
-	{
-		Components::ComponentInfos* cinfos = Components::getSingleton().findComponent(cellAppID);
-		if(cinfos == NULL || cinfos->pChannel == NULL)
-		{
-			ERROR_MSG(fmt::format("{}::teleportFromBaseapp: {}, teleport error, not found cellapp, targetEntityID, cellAppID={}.\n",
-				this->scriptName(), this->id(), targetEntityID, cellAppID));
-
-			_sendBaseTeleportResult(this->id(), sourceBaseAppID, 0, lastSpaceID, false);
-			return;
-		}
-
-		// 目标cell不是当前， 我们现在可以将entity迁往目的地了
-	}
-	else
-	{
-		Entity* entity = Cellapp::getSingleton().findEntity(targetEntityID);
-		if(entity == NULL || entity->isDestroyed())
-		{
-			ERROR_MSG(fmt::format("{}::teleportFromBaseapp: {}, can't found targetEntity({}).\n",
-				this->scriptName(), this->id(), targetEntityID));
-
-			_sendBaseTeleportResult(this->id(), sourceBaseAppID, 0, lastSpaceID, false);
-			return;
-		}
-		
-		// 找到space
-		SPACE_ID spaceID = entity->spaceID();
-
-		// 如果是不同space跳转
-		if(spaceID != this->spaceID())
-		{
-			SpaceMemory* space = SpaceMemorys::findSpace(spaceID);
-			if(space == NULL || !space->isGood())
-			{
-				ERROR_MSG(fmt::format("{}::teleportFromBaseapp: {}, can't found space({}).\n",
-					this->scriptName(), this->id(), spaceID));
-
-				_sendBaseTeleportResult(this->id(), sourceBaseAppID, 0, lastSpaceID, false);
-				return;
-			}
-			
-			SpaceMemory* currspace = SpaceMemorys::findSpace(this->spaceID());
-			currspace->removeEntity(this);
-			space->addEntityAndEnterWorld(this);
-			_sendBaseTeleportResult(this->id(), sourceBaseAppID, spaceID, lastSpaceID, false);
-		}
-		else
-		{
-			WARNING_MSG(fmt::format("{}::teleportFromBaseapp: {} targetSpace({}) == currSpaceID({}).\n",
-				this->scriptName(), this->id(), spaceID, this->spaceID()));
-
-			_sendBaseTeleportResult(this->id(), sourceBaseAppID, spaceID, lastSpaceID, false);
-		}
 	}
 }
 
@@ -4406,11 +4403,26 @@ void Entity::addEventsToStream(KBEngine::MemoryStream& s)
 
 			const char* ccattr = PyUnicode_AsUTF8AndSize(pyObj, NULL);
 
-			char *pClass;
-			char *pMethod;
+			const char *pClass = NULL;
+			const char *pMethod = NULL;
 
-			pClass = strtok(const_cast<char*>(ccattr), ".");
-			pMethod = strtok(NULL, ".");
+			std::vector<std::string>  vec;
+			std::string str(ccattr);
+			strutil::kbe_split(str, '.', vec);
+
+			if (vec.size() == 1)
+			{
+				pMethod = vec[0].c_str();
+			}
+			else if (vec.size() == 2)
+			{
+				pClass = vec[0].c_str();
+				pMethod = vec[1].c_str();
+			}
+			else
+			{
+				pMethod = ccattr;
+			}
 
 			ScriptDefModule* pScriptDefModule = EntityDef::findScriptModule(pClass);
 
@@ -4487,7 +4499,7 @@ void Entity::createEventsFromStream(KBEngine::MemoryStream& s)
 			std::string callbackName;
 			s >> callbackName;
 
-			if (eventName == "None")
+			if (callbackName == "None")
 				continue;
 
 			std::vector<std::string> callBackNameVec;

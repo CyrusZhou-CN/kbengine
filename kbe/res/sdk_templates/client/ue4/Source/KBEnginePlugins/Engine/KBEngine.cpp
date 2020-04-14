@@ -18,6 +18,9 @@
 #include "KBEvent.h"
 #include "EncryptionFilter.h"
 
+namespace KBEngine
+{
+
 ServerErrorDescrs KBEngineApp::serverErrs_;
 
 KBEngineApp::KBEngineApp() :
@@ -56,9 +59,11 @@ KBEngineApp::KBEngineApp() :
 	spaceResPath_(TEXT("")),
 	isLoadedGeometry_(false),
 	component_(TEXT("client")),
-	pFilter_(NULL)
+	pFilter_(NULL),
+	pUKBETicker_(nullptr)
 {
 	INFO_MSG("KBEngineApp::KBEngineApp(): hello!");
+	installUKBETicker();
 }
 
 KBEngineApp::KBEngineApp(KBEngineArgs* pArgs):
@@ -97,10 +102,12 @@ KBEngineApp::KBEngineApp(KBEngineArgs* pArgs):
 	spaceResPath_(TEXT("")),
 	isLoadedGeometry_(false),
 	component_(TEXT("client")),
-	pFilter_(NULL)
+	pFilter_(NULL),
+	pUKBETicker_(nullptr)
 {
 	INFO_MSG("KBEngineApp::KBEngineApp(): hello!");
 	initialize(pArgs);
+	installUKBETicker();
 }
 
 KBEngineApp::~KBEngineApp()
@@ -109,14 +116,24 @@ KBEngineApp::~KBEngineApp()
 	INFO_MSG("KBEngineApp::~KBEngineApp(): destructed!");
 }
 
+KBEngineApp* pKBEngineApp = nullptr;
+
 KBEngineApp& KBEngineApp::getSingleton() 
 {
-	static KBEngineApp* pKBEngineApp = NULL;
-
-	if (!pKBEngineApp)
+	if(!pKBEngineApp)
 		pKBEngineApp = new KBEngineApp();
 
 	return *pKBEngineApp;
+}
+
+void KBEngineApp::destroyKBEngineApp() 
+{
+	if(pKBEngineApp)
+	{
+		delete pKBEngineApp;
+		pKBEngineApp = nullptr;
+		KBEvent::clear();
+	}
 }
 
 bool KBEngineApp::initialize(KBEngineArgs* pArgs)
@@ -192,6 +209,7 @@ void KBEngineApp::destroy()
 	KBE_SAFE_RELEASE(pArgs_);
 	KBE_SAFE_RELEASE(pNetworkInterface_);
 	KBE_SAFE_RELEASE(pFilter_);
+	uninstallUKBETicker();
 }
 
 void KBEngineApp::resetMessages()
@@ -241,6 +259,25 @@ void KBEngineApp::reset()
 	baseappUdpPort_ = 0;
 
 	initNetwork();
+}
+
+void KBEngineApp::installUKBETicker()
+{
+	if (pUKBETicker_ == nullptr)
+	{
+		pUKBETicker_ = NewObject<UKBETicker>();
+		pUKBETicker_->AddToRoot();
+	}
+}
+
+void KBEngineApp::uninstallUKBETicker()
+{
+	if (pUKBETicker_)
+	{
+		pUKBETicker_->RemoveFromRoot();
+		pUKBETicker_->ConditionalBeginDestroy();
+		pUKBETicker_ = nullptr;
+	}
 }
 
 bool KBEngineApp::initNetwork()
@@ -305,7 +342,7 @@ void KBEngineApp::sendTick()
 	// 更新玩家的位置与朝向到服务端
 	updatePlayerToServer();
 
-	if (span > pArgs_->serverHeartbeatTick)
+	if (pArgs_->serverHeartbeatTick > 0 && span > pArgs_->serverHeartbeatTick)
 	{
 		span = lastTickCBTime_ - lastTickTime_;
 
@@ -438,7 +475,6 @@ void KBEngineApp::updatePlayerToServer()
 			pBundle->send(pNetworkInterface_);
 		}
 	}
-
 }
 
 void KBEngineApp::Client_onAppActiveTickCB()
@@ -456,7 +492,7 @@ void KBEngineApp::hello()
 
 	KBE_SAFE_RELEASE(pFilter_);
 
-	if (pArgs_->networkEncryptType ==  NETWORK_ENCRYPT_TYPE::ENCRYPT_TYPE_BLOWFISH)
+	if (pArgs_->networkEncryptType == NETWORK_ENCRYPT_TYPE::ENCRYPT_TYPE_BLOWFISH)
 	{
 		pFilter_ = new BlowfishFilter();
 		encryptedKey_ = ((BlowfishFilter*)pFilter_)->key();
@@ -704,6 +740,7 @@ void KBEngineApp::Client_onLoginFailed(MemoryStream& stream)
 	UKBEventData_onLoginFailed* pEventData = NewObject<UKBEventData_onLoginFailed>();
 	pEventData->failedcode = failedcode;
 	pEventData->errorStr = serverErr(failedcode);
+	pEventData->serverdatas = serverdatas_;
 	KBENGINE_EVENT_FIRE(KBEventTypes::onLoginFailed, pEventData);
 }
 
@@ -1152,6 +1189,11 @@ void KBEngineApp::onConnectTo_resetpassword_callback(FString ip, uint16 port, bo
 
 void KBEngineApp::Client_onReqAccountResetPasswordCB(uint16 failcode)
 {
+	auto* pEventData = NewObject<UKBEventData_onResetPassword>();
+	pEventData->failedcode = failcode;
+	pEventData->errorStr = serverErr(failcode);
+	KBENGINE_EVENT_FIRE(KBEventTypes::onResetPassword, pEventData);
+	
 	if (failcode != 0)
 	{
 		ERROR_MSG("KBEngineApp::Client_onReqAccountResetPasswordCB(): reset failed! code=%d, error=%s! username=%s", failcode, *serverErr(failcode), *username_);
@@ -1264,6 +1306,11 @@ void KBEngineApp::bindAccountEmail(const FString& emailAddress)
 
 void KBEngineApp::Client_onReqAccountBindEmailCB(uint16 failcode)
 {
+	auto* pEventData = NewObject<UKBEventData_onBindAccountEmail>();
+	pEventData->failedcode = failcode;
+	pEventData->errorStr = serverErr(failcode);
+	KBENGINE_EVENT_FIRE(KBEventTypes::onBindAccountEmail, pEventData);
+
 	if (failcode != 0)
 	{
 		ERROR_MSG("KBEngineApp::Client_onReqAccountBindEmailCB(): bind failed! code=%d, error=%s! username=%s", failcode, *serverErr(failcode), *username_);
@@ -1279,7 +1326,6 @@ void KBEngineApp::newPassword(const FString& old_password, const FString& new_pa
 	Bundle* pBundle = Bundle::createObject();
 	pBundle->newMessage(Messages::messages[TEXT("Baseapp_reqAccountNewPassword"]));
 	(*pBundle) << entity_id_;
-	(*pBundle) << password_;
 	(*pBundle) << old_password;
 	(*pBundle) << new_password;
 	pBundle->send(pNetworkInterface_);
@@ -1287,6 +1333,11 @@ void KBEngineApp::newPassword(const FString& old_password, const FString& new_pa
 
 void KBEngineApp::Client_onReqAccountNewPasswordCB(uint16 failcode)
 {
+	auto* pEventData = NewObject<UKBEventData_onNewPassword>();
+	pEventData->failedcode = failcode;
+	pEventData->errorStr = serverErr(failcode);
+	KBENGINE_EVENT_FIRE(KBEventTypes::onNewPassword, pEventData);
+
 	if (failcode != 0)
 	{
 		ERROR_MSG("KBEngineApp::Client_onReqAccountNewPasswordCB(): newPassword failed! code=%d, error=%s! username=%s", failcode, *serverErr(failcode), *username_);
@@ -2255,19 +2306,19 @@ void KBEngineApp::_updateVolatileData(ENTITY_ID entityID, float x, float y, floa
 	if (roll != KBE_FLT_MAX)
 	{
 		changeDirection = true;
-		entity.direction.X = int82angle((int8)roll, false);
+		entity.direction.X = isOptimized ? int82angle((int8)roll, false) : roll;
 	}
 
 	if (pitch != KBE_FLT_MAX)
 	{
 		changeDirection = true;
-		entity.direction.Y = int82angle((int8)pitch, false);
+		entity.direction.Y = isOptimized ? int82angle((int8)pitch, false) : pitch;
 	}
 
 	if (yaw != KBE_FLT_MAX)
 	{
 		changeDirection = true;
-		entity.direction.Z = int82angle((int8)yaw, false);
+		entity.direction.Z = isOptimized ? int82angle((int8)yaw, false) : yaw;
 	}
 
 	bool done = false;
@@ -2281,10 +2332,10 @@ void KBEngineApp::_updateVolatileData(ENTITY_ID entityID, float x, float y, floa
 		done = true;
 	}
 
-        bool positionChanged = x != KBE_FLT_MAX || y != KBE_FLT_MAX || z != KBE_FLT_MAX;
-        if (x == KBE_FLT_MAX) x = 0.0f;
-        if (y == KBE_FLT_MAX) y = 0.0f;
-        if (z == KBE_FLT_MAX) z = 0.0f;
+	bool positionChanged = x != KBE_FLT_MAX || y != KBE_FLT_MAX || z != KBE_FLT_MAX;
+	if (x == KBE_FLT_MAX) x = isOptimized ? 0.0f : entity.position.X;
+	if (y == KBE_FLT_MAX) y = isOptimized ? 0.0f : entity.position.Y;
+	if (z == KBE_FLT_MAX) z = isOptimized ? 0.0f : entity.position.Z;
 	            
 	if (positionChanged)
 	{
@@ -2302,4 +2353,6 @@ void KBEngineApp::_updateVolatileData(ENTITY_ID entityID, float x, float y, floa
 
 	if (done)
 		entity.onUpdateVolatileData();
+}
+
 }

@@ -23,7 +23,7 @@
     <ProjectGuid>{56D453A7-787B-49E3-84BC-465EED38DE8A}</ProjectGuid>
     <RootNamespace>server</RootNamespace>
     <Keyword>Win32Proj</Keyword>
-    <WindowsTargetPlatformVersion>10.0.17134.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion>10.0.17763.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
@@ -182,6 +182,7 @@
     <ClCompile Include="components.cpp" />
     <ClCompile Include="entity_app.cpp" />
     <ClCompile Include="forward_messagebuffer.cpp" />
+    <ClCompile Include="id_component_querier.cpp" />
     <ClCompile Include="globaldata_client.cpp" />
     <ClCompile Include="globaldata_server.cpp" />
     <ClCompile Include="idallocate.cpp" />
@@ -205,6 +206,7 @@
     <ClInclude Include="components.h" />
     <ClInclude Include="entity_app.h" />
     <ClInclude Include="forward_messagebuffer.h" />
+    <ClInclude Include="id_component_querier.h" />
     <ClInclude Include="globaldata_client.h" />
     <ClInclude Include="globaldata_server.h" />
     <ClInclude Include="idallocate.h" />

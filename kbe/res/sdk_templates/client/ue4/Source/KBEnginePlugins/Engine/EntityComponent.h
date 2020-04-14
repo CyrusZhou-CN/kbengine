@@ -4,6 +4,9 @@
 
 #include "KBECommon.h"
 
+namespace KBEngine
+{
+
 class Entity;
 class MemoryStream;
 class ScriptModule;
@@ -23,9 +26,32 @@ public:
 	{
 	}
 
+	virtual void onEnterworld()
+	{
+	}
+
+	virtual void onLeaveworld()
+	{
+	}
+
 	virtual ScriptModule* getScriptModule()
 	{
 		return NULL;
+	}
+
+	virtual void onGetBase()
+	{
+		// 动态生成
+	}
+
+	virtual void onGetCell()
+	{
+		// 动态生成
+	}
+
+	virtual void onLoseCell()
+	{
+		// 动态生成
 	}
 
 	virtual void onRemoteMethodCall(uint16 methodUtype, MemoryStream& stream)
@@ -50,4 +76,7 @@ public:
 	uint16 componentType;
 	ENTITY_ID ownerID;
 	Entity* pOwner;
+	FString name_;
 };
+
+}

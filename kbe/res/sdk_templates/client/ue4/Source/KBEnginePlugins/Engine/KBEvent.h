@@ -171,6 +171,9 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = KBEngine)
 	FString errorStr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = KBEngine)
+	TArray<uint8> serverdatas;
 };
 
 UCLASS(Blueprintable, BlueprintType)
@@ -546,6 +549,19 @@ public:
 };
 
 UCLASS(Blueprintable, BlueprintType)
+class KBENGINEPLUGINS_API UKBEventData_onResetPassword : public UKBEventData
+{
+	GENERATED_BODY()
+
+public:
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = KBEngine)
+	int32 failedcode;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = KBEngine)
+	FString errorStr;
+};
+
+UCLASS(Blueprintable, BlueprintType)
 class KBENGINEPLUGINS_API UKBEventData_bindAccountEmail : public UKBEventData
 {
 	GENERATED_BODY()
@@ -553,6 +569,19 @@ class KBENGINEPLUGINS_API UKBEventData_bindAccountEmail : public UKBEventData
 public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = KBEngine)
 	FString email;
+};
+
+UCLASS(Blueprintable, BlueprintType)
+class KBENGINEPLUGINS_API UKBEventData_onBindAccountEmail : public UKBEventData
+{
+	GENERATED_BODY()
+
+public:
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = KBEngine)
+	int32 failedcode;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = KBEngine)
+	FString errorStr;
 };
 
 UCLASS(Blueprintable, BlueprintType)
@@ -566,6 +595,19 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = KBEngine)
 	FString new_password;
+};
+
+UCLASS(Blueprintable, BlueprintType)
+class KBENGINEPLUGINS_API UKBEventData_onNewPassword : public UKBEventData
+{
+	GENERATED_BODY()
+
+public:
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = KBEngine)
+	int32 failedcode;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = KBEngine)
+	FString errorStr;
 };
 
 UCLASS(Blueprintable, BlueprintType)
@@ -624,5 +666,24 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = KBEngine)
 	TArray<uint8> fileDatas;
+};
+
+UCLASS(Blueprintable, BlueprintType)
+class KBENGINEPLUGINS_API UKBEventData_onImportClientSDKSuccessfully : public UKBEventData
+{
+	GENERATED_BODY()
+
+public:
+
+};
+
+UCLASS(Blueprintable, BlueprintType)
+class KBENGINEPLUGINS_API UKBEventData_onDownloadSDK : public UKBEventData
+{
+	GENERATED_BODY()
+
+public:
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = KBEngine)
+	bool isDownload;
 };
 
