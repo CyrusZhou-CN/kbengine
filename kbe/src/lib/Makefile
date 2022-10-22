@@ -21,7 +21,7 @@ ifneq ("$(wildcard /usr/lib/x86_64-linux-gnu/libssl.a)", "")
 else
     $(info, "use self openssl.")
     USE_SELF_OPENSSL=1
-    $(shell ln -s $(KBE_ROOT)/kbe/src/lib/dependencies/vsopenssl $(KBE_ROOT)/kbe/src/lib/dependencies/openssl)
+    $(shell ln -sf $(KBE_ROOT)/kbe/src/lib/dependencies/vsopenssl $(KBE_ROOT)/kbe/src/lib/dependencies/openssl)
 endif
 
 # This directory must match the directory in src/build/common.mak
