@@ -278,7 +278,7 @@ endif
 CXXFLAGS = $(ARCHFLAGS) -pipe
 CXXFLAGS += -Wall -Wno-deprecated
 CXXFLAGS += -Wno-uninitialized -Wno-char-subscripts
-CXXFLAGS += -fno-strict-aliasing -Wno-non-virtual-dtor
+CXXFLAGS += -fno-strict-aliasing -Wno-non-virtual-dtor -O2 -Wstringop-overflow
 CXXFLAGS += -Wno-invalid-offsetof
 CXXFLAGS += -Werror -Wno-format-truncation
 CXXFLAGS += -std=c++11
