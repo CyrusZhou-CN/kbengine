@@ -1,0 +1,62 @@
+name: Sync All Branches
+
+on:
+  schedule:
+    - cron: "0 0 * * *"  # 每天 UTC 时间 0:00 触发一次
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source repository
+        uses: actions/checkout@v3
+        with:
+          repository: CyrusZhou-CN/UnrealEngine
+          token: ${{ secrets.GH_TOKEN }}
+          fetch-depth: 0  # 确保获取所有历史记录
+
+      - name: Setup Git
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git config pull.rebase false  # 配置为 merge 模式
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/EpicGames/UnrealEngine.git
+          git remote -v  # 验证添加的远程仓库是否正确
+
+      - name: Fetch all branches from upstream
+        run: |
+          git fetch upstream
+
+      - name: Sync branches
+        run: |
+          for branch in $(git branch -r | grep 'upstream/' | grep -v '\->' | sed 's/upstream\///'); do
+            echo "Processing branch: $branch"
+            if git show-ref --verify --quiet "refs/heads/$branch"; then
+              git checkout "$branch"
+              git merge --no-ff "upstream/$branch" || echo "Failed to merge branch $branch"
+            else
+              git checkout -b "$branch" "upstream/$branch"
+            fi
+            git push origin "$branch" || echo "Failed to push branch $branch"
+          done
+
+      - name: Push tags to own repo
+        run: |
+          git fetch --tags
+          git tag -l | while read tag; do
+            echo "Processing tag: $tag"
+            if ! git ls-remote --tags origin | grep -q "refs/tags/$tag"; then
+              git push origin "$tag" || echo "Failed to push tag $tag"
+            else
+              echo "Tag $tag already exists on origin, skipping."
+            fi
+          done
+
+      - name: Cleanup
+        run: |
+          git gc --prune=now
