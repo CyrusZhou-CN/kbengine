@@ -13,7 +13,7 @@ jobs:
       - name: Checkout source repository
         uses: actions/checkout@v3
         with:
-          repository: CyrusZhou-CN/UnrealEngine
+          repository: CyrusZhou-CN/kbengine
           token: ${{ secrets.GH_TOKEN }}
           fetch-depth: 0  # 确保获取所有历史记录
 
@@ -25,7 +25,7 @@ jobs:
 
       - name: Add upstream remote
         run: |
-          git remote add upstream https://github.com/EpicGames/UnrealEngine.git
+          git remote add upstream https://github.com/kbengine/kbengine.git
           git remote -v  # 验证添加的远程仓库是否正确
 
       - name: Fetch all branches from upstream
