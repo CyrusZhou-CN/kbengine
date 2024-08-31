@@ -10,53 +10,34 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout source repository
+      - name: Checkout your repository
         uses: actions/checkout@v3
         with:
           repository: CyrusZhou-CN/kbengine
           token: ${{ secrets.GH_TOKEN }}
-          fetch-depth: 0  # 确保获取所有历史记录
-
-      - name: Setup Git
+          fetch-depth: 1
+          
+      - name: Authenticate with GitHub CLI
         run: |
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          git config pull.rebase false  # 配置为 merge 模式
+          echo "${{ secrets.GH_TOKEN }}" | gh auth login --with-token
 
-      - name: Add upstream remote
+      - name: Sync all branches
         run: |
-          git remote add upstream https://github.com/kbengine/kbengine.git
-          git remote -v  # 验证添加的远程仓库是否正确
+          REMOTE_REPO="kbengine/kbengine"
+          LOCAL_REPO="CyrusZhou-CN/kbengine"
 
-      - name: Fetch all branches from upstream
-        run: |
-          git fetch upstream
+          # 获取所有远程分支
+          BRANCHES=$(gh api repos/$REMOTE_REPO/branches  --paginate  --jq '.[].name')
 
-      - name: Sync branches
-        run: |
-          for branch in $(git branch -r | grep 'upstream/' | grep -v '\->' | sed 's/upstream\///'); do
-            echo "Processing branch: $branch"
-            if git show-ref --verify --quiet "refs/heads/$branch"; then
-              git checkout "$branch"
-              git merge --no-ff "upstream/$branch" || echo "Failed to merge branch $branch"
-            else
-              git checkout -b "$branch" "upstream/$branch"
-            fi
-            git push origin "$branch" || echo "Failed to push branch $branch"
+          for branch in $BRANCHES; do
+            echo "Syncing branch: $branch"
+            gh repo sync $LOCAL_REPO -b $branch --force
           done
 
       - name: Push tags to own repo
         run: |
-          git fetch --tags
-          git tag -l | while read tag; do
-            echo "Processing tag: $tag"
-            if ! git ls-remote --tags origin | grep -q "refs/tags/$tag"; then
-              git push origin "$tag" || echo "Failed to push tag $tag"
-            else
-              echo "Tag $tag already exists on origin, skipping."
-            fi
-          done
-
+          git fetch --tags          
+          git push --tags
       - name: Cleanup
         run: |
           git gc --prune=now
