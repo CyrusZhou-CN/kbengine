@@ -20,24 +20,41 @@ jobs:
       - name: Authenticate with GitHub CLI
         run: |
           echo "${{ secrets.GH_TOKEN }}" | gh auth login --with-token
-
+      - name: Add and fetch from remote repository
+        run: |
+          REMOTE_REPO="kbengine/kbengine"
+          
+          # 添加远程仓库
+          REMOTE_URL="https://github.com/$REMOTE_REPO.git"
+          git remote add upstream $REMOTE_URL
+          
+          # 获取远程分支和标签
+          git fetch upstream --tags
       - name: Sync all branches
         run: |
           REMOTE_REPO="kbengine/kbengine"
           LOCAL_REPO="CyrusZhou-CN/kbengine"
-
+          
           # 获取所有远程分支
-          BRANCHES=$(gh api repos/$REMOTE_REPO/branches  --paginate  --jq '.[].name')
-
-          for branch in $BRANCHES; do
-            echo "Syncing branch: $branch"
-            gh repo sync $LOCAL_REPO -b $branch --force
+          REMOTE_BRANCHES=$(gh api repos/$REMOTE_REPO/branches  --paginate  --jq '.[].name')
+          LOCAL_BRANCHES=$(gh api repos/$LOCAL_REPO/branches  --paginate  --jq '.[].name')
+          
+          for branch in $REMOTE_BRANCHES; do
+            echo "Checking if local branch $branch exists"
+            if echo "$LOCAL_BRANCHES" | grep -E "^$branch$" > /dev/null; then
+              echo "Syncing branch: $branch"
+              gh repo sync $LOCAL_REPO -b $branch --force
+            else
+              echo "Local branch $branch exists, syncing..."
+              # 创建本地分支并设置为跟踪远程分支
+              git checkout -b $branch upstream/$branch
+              git push origin $branch
+            fi
           done
 
       - name: Push tags to own repo
         run: |
-          git fetch --tags          
-          git push --tags
+          git remote update --prune
       - name: Cleanup
         run: |
           git gc --prune=now
