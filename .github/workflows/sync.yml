@@ -30,6 +30,7 @@ jobs:
           
           # 获取远程分支和标签
           git fetch upstream --tags
+          git push --tags --progress "origin"
       - name: Sync all branches
         run: |
           REMOTE_REPO="kbengine/kbengine"
